@@ -1,0 +1,9 @@
+flask
+flask-socketio
+eventlet
+requests
+numpy
+pandas
+ta
+keras
+tensorflow
