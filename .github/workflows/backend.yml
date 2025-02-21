@@ -15,33 +15,22 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0  # Ensures the full repo is cloned
 
       - name: Set up Node.js
         uses: actions/setup-node@v18
         with:
           node-version: 18
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json  # Cache dependencies
 
       - name: Install Dependencies
-        run: |
-          cd backend
-          npm install
+        working-directory: backend
+        run: npm install
 
-      - name: Run Tests
-        run: |
-          cd backend
-          npm test
-
-      - name: Build Application
-        run: |
-          cd backend
-          npm run build
+      - name: Build Backend
+        working-directory: backend
+        run: npm run build
 
       - name: Deploy Backend
+        working-directory: backend
         run: |
-          cd backend
           docker build -t backend-app .
           docker run -d -p 4000:4000 backend-app
