@@ -8,7 +8,7 @@ const app = express();
 const server = require('http').createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const BINANCE_WS = 'wss://stream.binance.com:9443/ws/btcusdt@trade';
+const BINANCE_WS = 'wss://ws.coingecko.com/socket.io/?EIO=3&transport=websocket';
 let binanceWs;
 const priceData = [];
 const logs = [];
