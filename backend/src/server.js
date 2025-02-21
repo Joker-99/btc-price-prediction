@@ -11,16 +11,24 @@ const wss = new WebSocket.Server({ server });
 const BINANCE_WS = 'wss://stream.binance.com:9443/ws/btcusdt@trade';
 let priceData = [];
 
-// WebSocket connection
+// ✅ Start collecting BTC price data immediately
+const binanceWs = new WebSocket(BINANCE_WS);
+binanceWs.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    const price = parseFloat(data.p);
+    priceData.push(price);
+    if (priceData.length > 100) priceData.shift(); // Keep only last 100 prices
+};
+
+// ✅ WebSocket connection for real-time updates
 wss.on('connection', (ws) => {
     console.log("Client connected");
-    const binanceWs = new WebSocket(BINANCE_WS);
     
+    ws.send(JSON.stringify({ message: "Connected to BTC price stream" }));
+
     binanceWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
         const price = parseFloat(data.p);
-        priceData.push(price);
-        if (priceData.length > 100) priceData.shift();
         
         const indicators = calculateIndicators(priceData);
         const prediction = predictNextPrice({ 
@@ -33,12 +41,7 @@ wss.on('connection', (ws) => {
     };
 });
 
-// ✅ Serve HTTP request at "/"
-app.get("/", (req, res) => {
-    res.send("Backend is working! 🚀");
-});
-
-// ✅ Serve BTC price & prediction over HTTP
+// ✅ HTTP API to fetch latest BTC price & predictions
 app.get("/btc-price", (req, res) => {
     if (priceData.length === 0) {
         return res.json({ error: "No data available yet" });
@@ -56,6 +59,11 @@ app.get("/btc-price", (req, res) => {
         indicators, 
         prediction 
     });
+});
+
+// ✅ Root route confirmation
+app.get("/", (req, res) => {
+    res.send("Backend is working! 🚀");
 });
 
 // Start server
