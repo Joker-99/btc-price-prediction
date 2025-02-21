@@ -2,35 +2,37 @@ name: Frontend Deployment
 
 on:
   push:
-    paths:
-      - "frontend/**"
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch: # Allows manual trigger
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: 18
 
-      - name: Install dependencies
-        run: |
-          cd frontend
-          npm install
+      - name: Install Dependencies
+        run: npm install
 
-      - name: Build React app
-        run: |
-          cd frontend
-          npm run build
+      - name: Run Tests
+        run: npm test
 
-      - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          branch: gh-pages
-          folder: frontend/build
+      - name: Build Frontend
+        run: npm run build
+
+      - name: Deploy Frontend
+        run: |
+          echo "Deploying frontend..."
+          # Add deployment steps here (e.g., Vercel, GitHub Pages, Netlify, Firebase)
+
