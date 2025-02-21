@@ -8,7 +8,8 @@ const app = express();
 const server = require('http').createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const BINANCE_WS = 'wss://stream.binance.com:9443/ws/btcusdt@trade';
+const PROXY_WS = 'wss://api.proxyscrape.com/ws?url=wss://stream.binance.com:9443/ws/btcusdt@trade';
+const binanceWs = new WebSocket(PROXY_WS);
 let priceData = [];
 
 // ✅ Start collecting BTC price data immediately
