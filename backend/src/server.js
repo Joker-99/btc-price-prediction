@@ -11,33 +11,43 @@ const wss = new WebSocket.Server({ server });
 const BINANCE_WS = 'wss://stream.binance.com:9443/ws/btcusdt@trade';
 const priceData = [];
 let binanceWs;
-let lastFetchedPrice = null;
+const logs = [];
+
+// ✅ Logging function (stores last 50 logs)
+const log = (msg) => {
+    console.log(msg);
+    logs.push(msg);
+    if (logs.length > 50) logs.shift(); // Keep last 50 logs
+};
 
 // ✅ Function to start WebSocket connection
 const connectWebSocket = () => {
     binanceWs = new WebSocket(BINANCE_WS);
 
-    binanceWs.onopen = () => console.log('✅ Connected to Binance WebSocket');
+    binanceWs.onopen = () => log('Connected to Binance WebSocket ✅');
 
     binanceWs.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
             if (data.p) {
                 const price = parseFloat(data.p);
-                lastFetchedPrice = price;
                 priceData.push(price);
                 if (priceData.length > 100) priceData.shift();
-                console.log(`📊 Received BTC Price: ${price}`);
+                log(`🔵 WebSocket Price: ${price}`);
+            } else {
+                log("⚠️ Unexpected WebSocket data:", data);
             }
         } catch (error) {
-            console.error("🚨 Error parsing WebSocket data:", error.message);
+            log("❌ Error parsing WebSocket data: " + error.message);
         }
     };
 
-    binanceWs.onerror = (error) => console.error("🚨 WebSocket Error:", error.message);
+    binanceWs.onerror = (error) => {
+        log("❌ WebSocket Error: " + error.message);
+    };
 
     binanceWs.onclose = () => {
-        console.warn("⚠️ WebSocket disconnected. Reconnecting in 5 seconds...");
+        log("⚠️ WebSocket disconnected. Reconnecting in 5 seconds...");
         setTimeout(connectWebSocket, 5000);
     };
 };
@@ -47,45 +57,40 @@ const fetchPrice = async () => {
     try {
         const response = await axios.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT");
         const price = parseFloat(response.data.price);
-        lastFetchedPrice = price;
         priceData.push(price);
         if (priceData.length > 100) priceData.shift();
-        console.log(`🔄 Fetched BTC Price (API Fallback): ${price}`);
+        log(`🟢 API Fallback Price: ${price}`);
     } catch (error) {
-        console.error("🚨 Error fetching BTC price:", error.message);
+        log("❌ Error fetching BTC price: " + error.message);
     }
 };
 setInterval(fetchPrice, 5000);
 
 // ✅ WebSocket connection for real-time updates
 wss.on('connection', (ws) => {
-    console.log("✅ Client connected to WebSocket");
+    log("🔗 Client connected to WebSocket");
 
     ws.send(JSON.stringify({ message: "Connected to BTC price stream" }));
 
-    const sendPriceData = () => {
-        if (lastFetchedPrice !== null) {
-            const indicators = calculateIndicators(priceData);
-            const prediction = predictNextPrice({
-                rsi: indicators.rsi.slice(-1)[0],
-                macd: indicators.macd.slice(-1)[0].MACD,
-                ema: indicators.ema.slice(-1)[0]
-            });
+    binanceWs.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        const price = parseFloat(data.p);
 
-            ws.send(JSON.stringify({ price: lastFetchedPrice, indicators, prediction }));
-        }
+        const indicators = calculateIndicators(priceData);
+        const prediction = predictNextPrice({
+            rsi: indicators.rsi.slice(-1)[0],
+            macd: indicators.macd.slice(-1)[0].MACD,
+            ema: indicators.ema.slice(-1)[0]
+        });
+
+        ws.send(JSON.stringify({ price, indicators, prediction }));
     };
-
-    sendPriceData();
-    const interval = setInterval(sendPriceData, 5000);
-
-    ws.on("close", () => clearInterval(interval));
 });
 
 // ✅ HTTP API to fetch latest BTC price & predictions
 app.get("/btc-price", (req, res) => {
-    if (lastFetchedPrice === null) {
-        return res.status(503).json({ error: "No data available yet" });
+    if (priceData.length === 0) {
+        return res.json({ error: "⚠️ No data available yet" });
     }
 
     const indicators = calculateIndicators(priceData);
@@ -96,10 +101,24 @@ app.get("/btc-price", (req, res) => {
     });
 
     res.json({
-        latestPrice: lastFetchedPrice,
+        latestPrice: priceData.slice(-1)[0],
         indicators,
         prediction
     });
+});
+
+// ✅ Debug route to check internal state
+app.get("/debug", (req, res) => {
+    res.json({
+        lastFetchedPrice: priceData.slice(-1)[0] || null,
+        priceDataLength: priceData.length,
+        logs: logs.slice(-5) // Last 5 logs
+    });
+});
+
+// ✅ Logging API to fetch stored logs
+app.get("/logs", (req, res) => {
+    res.json({ logs });
 });
 
 // ✅ Root route confirmation
@@ -107,6 +126,12 @@ app.get("/", (req, res) => {
     res.send("Backend is working! 🚀");
 });
 
-// Start WebSocket & server
+// ✅ Fetch initial price on startup
+(async () => {
+    log("🔄 Fetching initial BTC price...");
+    await fetchPrice();
+})();
+
+// ✅ Start WebSocket & server
 connectWebSocket();
-server.listen(3001, () => console.log('✅ Backend running on port 3001'));
+server.listen(3001, () => log('🚀 Backend running on port 3001'));
