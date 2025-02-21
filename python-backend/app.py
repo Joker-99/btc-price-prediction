@@ -1,89 +1,77 @@
-from flask import Flask, jsonify
-from flask_socketio import SocketIO
+import json
 import eventlet
 import requests
 import numpy as np
 import pandas as pd
-import ta
-from keras.models import Sequential
-from keras.layers import Dense, LSTM
+import tensorflow as tf
+import flask
+import flask_socketio
+from ta.momentum import RSIIndicator
+from ta.trend import MACD, EMAIndicator
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM
 
-app = Flask(__name__)
-socketio = SocketIO(app, async_mode='eventlet')
+eventlet.monkey_patch()
+
+# Flask Setup
+app = flask.Flask(__name__)
+socketio = flask_socketio.SocketIO(app, cors_allowed_origins="*")
+
+# Binance WebSocket URL
+BINANCE_WS = "wss://stream.binance.com:9443/ws/btcusdt@trade"
 price_data = []
-model = None
 
+# Fetch price from Binance REST API (fallback if WebSocket fails)
 def fetch_price():
-    response = requests.get('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT')
-    data = response.json()
-    return float(data['price'])
-
-def calculate_indicators(prices):
-    df = pd.DataFrame(prices, columns=['price'])
-    df['rsi'] = ta.momentum.RSIIndicator(df['price']).rsi()
-    df['macd'] = ta.trend.MACD(df['price']).macd()
-    df['ema'] = ta.trend.EMAIndicator(df['price']).ema_indicator()
-    return df.iloc[-1].to_dict()
-
-def train_model(prices):
-    global model
-    X = []
-    y = []
-    for i in range(60, len(prices)):
-        X.append(prices[i-60:i])
-        y.append(prices[i])
-    X, y = np.array(X), np.array(y)
-    X = np.reshape(X, (X.shape[0], X.shape[1], 1))
-    model = Sequential()
-    model.add(LSTM(units=50, return_sequences=True, input_shape=(X.shape[1], 1)))
-    model.add(LSTM(units=50))
-    model.add(Dense(1))
-    model.compile(optimizer='adam', loss='mean_squared_error')
-    model.fit(X, y, epochs=1, batch_size=1)
-
-def predict_price(prices):
-    if model is None or len(prices) < 60:
+    try:
+        response = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
+        price = float(response.json()["price"])
+        return price
+    except Exception as e:
+        print("API Error:", str(e))
         return None
-    last_60_prices = np.array(prices[-60:])
-    last_60_prices = np.reshape(last_60_prices, (1, last_60_prices.shape[0], 1))
-    prediction = model.predict(last_60_prices)
-    return prediction[0][0]
 
-@app.route('/btc-price', methods=['GET'])
-def btc_price():
-    if not price_data:
-        return jsonify({'error': 'No data available yet'})
-    indicators = calculate_indicators(price_data)
-    prediction = predict_price(price_data)
-    return jsonify({
-        'latestPrice': price_data[-1],
-        'indicators': indicators,
-        'prediction': prediction
-    })
-
-@app.route('/logs', methods=['GET'])
-def logs():
-    return jsonify({'logs': []})  # Implement log collection as needed
-
-@socketio.on('connect')
-def handle_connect():
-    print('Client connected')
-
-def price_updater():
-    while True:
-        price = fetch_price()
+# WebSocket Handler for Live Data
+def start_websocket():
+    from websocket import WebSocketApp
+    
+    def on_message(ws, message):
+        global price_data
+        data = json.loads(message)
+        price = float(data["p"])
         price_data.append(price)
         if len(price_data) > 100:
             price_data.pop(0)
-        indicators = calculate_indicators(price_data)
-        prediction = predict_price(price_data)
-        socketio.emit('price_update', {
-            'price': price,
-            'indicators': indicators,
-            'prediction': prediction
-        })
-        eventlet.sleep(5)
+        socketio.emit("btc_price", {"price": price})
+    
+    ws = WebSocketApp(BINANCE_WS, on_message=on_message)
+    ws.run_forever()
 
-if __name__ == '__main__':
-    eventlet.spawn(price_updater)
-    socketio.run(app, host='0.0.0.0', port=5000)
+# Run WebSocket in the background
+eventlet.spawn(start_websocket)
+
+# Calculate Indicators
+def calculate_indicators():
+    df = pd.DataFrame(price_data, columns=["close"])
+    df["rsi"] = RSIIndicator(df["close"]).rsi()
+    df["macd"] = MACD(df["close"]).macd()
+    df["ema"] = EMAIndicator(df["close"], window=14).ema_indicator()
+    return df.iloc[-1].to_dict()
+
+# API Route for Price Data
+@app.route("/btc-price")
+def btc_price():
+    if not price_data:
+        return flask.jsonify({"error": "No data available yet"})
+    
+    indicators = calculate_indicators()
+    return flask.jsonify({"price": price_data[-1], "indicators": indicators})
+
+# API Route for WebSocket Logs
+@app.route("/logs")
+def logs():
+    return flask.jsonify({"message": "WebSocket running on Binance"})
+
+# Start Flask App
+if __name__ == "__main__":
+    socketio.run(app, host="0.0.0.0", port=5000)
