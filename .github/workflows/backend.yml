@@ -7,7 +7,6 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch: # Allows manual trigger
 
 jobs:
   deploy:
@@ -16,22 +15,33 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Ensures the full repo is cloned
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v18
         with:
           node-version: 18
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json  # Cache dependencies
 
       - name: Install Dependencies
-        run: npm install
+        run: |
+          cd backend
+          npm install
 
       - name: Run Tests
-        run: npm test
+        run: |
+          cd backend
+          npm test
 
       - name: Build Application
-        run: npm run build
+        run: |
+          cd backend
+          npm run build
 
       - name: Deploy Backend
         run: |
-          echo "Deploying backend..."
-          # Add deployment steps here (e.g., Docker, SSH, Firebase, AWS)
+          cd backend
+          docker build -t backend-app .
+          docker run -d -p 4000:4000 backend-app
